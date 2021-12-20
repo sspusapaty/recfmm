@@ -23,6 +23,7 @@
 #include <math.h>
 
 #include "cilk.h"
+#include "../opencilk-project/cheetah/runtime/cilk_thread_tests/cilk_c11_threads.c" 
 #include "fmm-param.h"
 #include "fmm-action.h"
 #include "fmm-dag.h"
@@ -30,13 +31,46 @@
 Real_t *sources_sorted; 
 Real_t *charges_sorted; 
 Real_t *targets_sorted; 
+#ifdef NORMAL
 double *potential_sorted; 
 double *field_sorted; 
+#else
+double *potential_sorted_near; 
+double *field_sorted_near; 
+double *potential_sorted_far; 
+double *field_sorted_far; 
+#endif
 
 fmm_dag_t *fmm_dag; 
 fmm_param_t *fmm_param; 
 
 int part_thres; 
+
+#ifdef MULTICILK
+int far_dispatch(void* arg) {
+  CILK_FOR (int i = 0; i < 8; i++) {
+    fmm_box_t *cbox = ((fmm_dag_t*)arg)->target_root->child[i]; 
+    if (cbox != NULL) {
+      cbox->expansion = CALLOC(fmm_param->pgsz, sizeof(double complex)); 
+      assert(cbox->expansion != NULL);
+      disaggregate_far(cbox);
+    }
+  }
+  return 0;
+}
+
+int near_dispatch(void* arg) {
+  CILK_FOR (int i = 0; i < 8; i++) {
+    fmm_box_t *cbox = ((fmm_dag_t*)arg)->target_root->child[i]; 
+    if (cbox != NULL) {
+      cbox->expansion = CALLOC(fmm_param->pgsz, sizeof(double complex)); 
+      assert(cbox->expansion != NULL);
+      disaggregate_near(cbox);
+    }
+  }
+  return 0;
+}
+#endif
 
 void fmm_compute(const fmm_config_t *fmm_config, fmm_dag_t *_fmm_dag, 
                  const Real_t *sources, const Real_t *charges, 
@@ -47,18 +81,30 @@ void fmm_compute(const fmm_config_t *fmm_config, fmm_dag_t *_fmm_dag,
   int s        = fmm_config->s; 
 #if YUKAWA
   double beta  = fmm_config->beta;
-#endif 
+#endif
 
   sources_sorted = CALLOC(nsources * 3, sizeof(Real_t));
   charges_sorted = CALLOC(nsources, sizeof(Real_t));
   targets_sorted = CALLOC(ntargets * 3, sizeof(Real_t));
+#ifdef NORMAL
   potential_sorted = CALLOC(ntargets, sizeof(double));
   field_sorted = CALLOC(ntargets * 3, sizeof(double)); 
+#else
+  potential_sorted_near = CALLOC(ntargets, sizeof(double));
+  field_sorted_near = CALLOC(ntargets * 3, sizeof(double)); 
+  potential_sorted_far = CALLOC(ntargets, sizeof(double));
+  field_sorted_far = CALLOC(ntargets * 3, sizeof(double)); 
+#endif
 
   assert(sources_sorted != NULL);
   assert(charges_sorted != NULL);
-  assert(targets_sorted != NULL); 
-  assert(field_sorted != NULL); 
+  assert(targets_sorted != NULL);
+#ifdef NORMAL
+  assert(field_sorted != NULL);
+#else
+  assert(field_sorted_far != NULL);
+  assert(field_sorted_near != NULL);
+#endif
 
   // Construct FMM parameters
   fmm_param = construct_param(fmm_config, _fmm_dag); 
@@ -86,29 +132,66 @@ void fmm_compute(const fmm_config_t *fmm_config, fmm_dag_t *_fmm_dag,
   aggregate(fmm_dag->source_root); 
 
   // Spawn disaggregate operation on the target tree
+#ifdef NORMAL
   fmm_dag->target_root->list5[0] = fmm_dag->source_root; 
   fmm_dag->target_root->nlist5 = 1; 
+#else
+  fmm_dag->target_root->list5_far[0] = fmm_dag->source_root; 
+  fmm_dag->target_root->nlist5_far = 1; 
+  fmm_dag->target_root->list5_near[0] = fmm_dag->source_root; 
+  fmm_dag->target_root->nlist5_near = 1; 
+#endif
   fmm_dag->target_root->expansion = CALLOC(fmm_param->pgsz, 
                                            sizeof(double complex)); 
   assert(fmm_dag->target_root->expansion != NULL);
 
-  part_thres = s; 
+  part_thres = s;
+
+#ifdef MULTICILK
+  pthread_t far_cilk, near_cilk;
+  cilk_thrd_create(cilk_thrd_config_from_env("FARCILK"), &far_cilk, far_dispatch, (void*)fmm_dag);
+  cilk_thrd_create(cilk_thrd_config_from_env("NEARCILK"), &near_cilk, near_dispatch, (void*)fmm_dag);
+
+  cilk_thrd_join(far_cilk, NULL);
+  cilk_thrd_join(near_cilk, NULL);
+#endif
+
+#ifndef MULTICILK
   CILK_FOR (int i = 0; i < 8; i++) {
     fmm_box_t *cbox = fmm_dag->target_root->child[i]; 
     if (cbox != NULL) {
       cbox->expansion = CALLOC(fmm_param->pgsz, sizeof(double complex)); 
-      assert(cbox->expansion != NULL); 
+      assert(cbox->expansion != NULL);
+#ifdef NORMAL
       disaggregate(cbox);
+#endif
+#ifdef SERIAL_CILK
+      disaggregate_far(cbox);
+      disaggregate_near(cbox);
+#endif
+#ifdef PAR_CILK
+      CILK_SPAWN disaggregate_far(cbox);
+      disaggregate_near(cbox);
+      CILK_SYNC;
+#endif
     }
   }
+#endif
 
   // Rearrange output in original order
   CILK_FOR (int i = 0; i < ntargets; i++) {
     int j = fmm_dag->maptar[i], i3 = i * 3, j3 = j * 3;
+#ifdef NORMAL
     potential[j]  = potential_sorted[i];
     field[j3]     = field_sorted[i3];
     field[j3 + 1] = field_sorted[i3 + 1];
     field[j3 + 2] = field_sorted[i3 + 2];
+#else
+    potential[j]  = potential_sorted_far[i] + potential_sorted_near[i];
+    field[j3]     = field_sorted_far[i3] + field_sorted_near[i3];
+    field[j3 + 1] = field_sorted_far[i3 + 1] + field_sorted_near[i3 + 1];
+    field[j3 + 2] = field_sorted_far[i3 + 2] + field_sorted_near[i3 + 2];
+#endif
   }
 }
 
@@ -117,8 +200,15 @@ void fmm_cleanup(void) {
   FREE(sources_sorted);
   FREE(charges_sorted);
   FREE(targets_sorted);
+#ifdef NORMAL
   FREE(potential_sorted);
   FREE(field_sorted);
+#else
+  FREE(potential_sorted_near);
+  FREE(field_sorted_near);
+  FREE(potential_sorted_far);
+  FREE(field_sorted_far);
+#endif
 }
 
 void aggregate(fmm_box_t *sbox) {
@@ -140,6 +230,7 @@ void aggregate(fmm_box_t *sbox) {
   multipole_to_exponential(sbox); 
 }
 
+#ifdef NORMAL
 void disaggregate(fmm_box_t *tbox) {
   fmm_box_t *parent = tbox->parent; 
   fmm_box_t **plist1 = parent->list1; 
@@ -280,6 +371,290 @@ void process_list13(fmm_box_t *tbox, fmm_box_t *sbox) {
     }
   }
 }
+
+#else
+void disaggregate_far(fmm_box_t *tbox) {
+  fmm_box_t *parent = tbox->parent; 
+  fmm_box_t **plist1 = parent->list1_far; 
+  fmm_box_t **plist5 = parent->list5_far; 
+  int nplist1 = parent->nlist1_far; 
+  int nplist5 = parent->nlist5_far; 
+
+  fmm_box_t **list1 = tbox->list1_far; 
+  fmm_box_t **list5 = tbox->list5_far; 
+  int nlist1 = 0, nlist5 = 0; 
+
+  // Go over list-5 of the parent box and determine its own list-5
+  for (int i = 0; i < nplist5; i++) {
+    fmm_box_t *sbox = plist5[i]; 
+    for (int j = 0; j < 8; j++) {
+      fmm_box_t *cbox = sbox->child[j]; 
+      if (cbox != NULL) {
+        if (abs(tbox->idx - cbox->idx) <= 1 &&
+            abs(tbox->idy - cbox->idy) <= 1 &&
+            abs(tbox->idz - cbox->idz) <= 1) 
+          list5[nlist5++] = cbox;
+      }
+    }
+  }
+
+  tbox->nlist5_far = nlist5; 
+
+  // Go over list-1 of the parent box. If the box is adjacent, then it
+  // belongs to coarser level list-1 and the pointer is
+  // stored. Otherwise, the box belongs to list-4 and is processed
+  // using source-to-local oeprator.
+  for (int i = 0; i < nplist1; i++) {
+    fmm_box_t *sbox = plist1[i]; 
+    if (is_adjacent(sbox, tbox)) {
+      list1[nlist1++] = sbox; 
+    } else {
+      source_to_local(tbox, sbox); 
+    }
+  }
+
+  // Check if it is possible to prune the subtree rooted at
+  // 'tbox'. First, we check if the box is adajcent to any source box
+  // by checking if tbox->nlist5 is zero. If not, we check if any of
+  // the list-5 box has more than 'part_thres' points. When both
+  // conditions are satifised, the partition performed at 'tbox' will
+  // be kept. Otherwise, the lower branch will be dropped. 
+  if (tbox->npts <= part_thres || tbox->nlist5_far == 0) {
+    CILK_FOR (int i = 0; i < 8; i++) {
+      delete_box(tbox->child[i]); 
+      tbox->child[i] = NULL;
+    }
+    tbox->nchild = 0;
+  } else {
+    bool remove = true;
+    for (int i = 0; i < nlist5; i++) {
+      fmm_box_t *sbox = list5[i]; 
+      remove &= (sbox->npts <= part_thres); 
+    }
+
+    if (remove) {
+      CILK_FOR (int i = 0; i < 8; i++) {
+        delete_box(tbox->child[i]); 
+        tbox->child[i] = NULL;
+      } 
+      tbox->nchild = 0;
+    }
+  }
+
+  if (tbox->nchild) {
+    // Complete exponential-to-local translation using the
+    // merge-and-shift technique. 
+    for (int i = 0; i < 8; i++) {
+      fmm_box_t *child = tbox->child[i];
+      if (child != NULL) {
+        child->expansion = CALLOC(fmm_param->pgsz, sizeof(double complex));
+        assert(child->expansion != NULL);
+      }
+    }
+
+    exponential_to_local(tbox); 
+    local_to_local(tbox); 
+
+    // Go over list-5 and if any box in that list is a leaf box,
+    // relocate it to list-1 and then spawn work on the children of 'tbox'.
+    for (int i = 0; i < nlist5; i++) {
+      fmm_box_t *sbox = list5[i]; 
+      if (sbox->nchild == 0) 
+        list1[nlist1++] = sbox; 
+    }
+    tbox->nlist1_far = nlist1; 
+
+    CILK_FOR (int i = 0; i < 8; i++) {
+      fmm_box_t *child = tbox->child[i]; 
+      if (child != NULL) 
+        disaggregate_far(child); 
+    }
+  } else {
+    // Evaluate the local expansion to get far-field influence. 
+    local_to_target(tbox); 
+    
+    // If tbox has nonempty list-5, go over each entry in the list-5
+    // and process them either as a list-1 entry or a list-3 entry. 
+    if (nlist5) {
+      for (int i = 0; i < nlist5; i++) {
+        fmm_box_t *sbox = list5[i]; 
+        process_list13_far(tbox, sbox); 	
+      }
+    }
+
+    // Process the coarser or same level list-1 boxes
+    for (int i = 0; i < nlist1; i++) {
+      fmm_box_t *sbox = list1[i]; 
+      //direct_evaluation(tbox, sbox);
+    }
+  }	     
+}
+
+void disaggregate_near(fmm_box_t *tbox) {
+  fmm_box_t *parent = tbox->parent; 
+  fmm_box_t **plist1 = parent->list1_near; 
+  fmm_box_t **plist5 = parent->list5_near; 
+  int nplist1 = parent->nlist1_near; 
+  int nplist5 = parent->nlist5_near; 
+
+  fmm_box_t **list1 = tbox->list1_near; 
+  fmm_box_t **list5 = tbox->list5_near; 
+  int nlist1 = 0, nlist5 = 0; 
+
+  // Go over list-5 of the parent box and determine its own list-5
+  for (int i = 0; i < nplist5; i++) {
+    fmm_box_t *sbox = plist5[i]; 
+    for (int j = 0; j < 8; j++) {
+      fmm_box_t *cbox = sbox->child[j]; 
+      if (cbox != NULL) {
+        if (abs(tbox->idx - cbox->idx) <= 1 &&
+            abs(tbox->idy - cbox->idy) <= 1 &&
+            abs(tbox->idz - cbox->idz) <= 1) 
+          list5[nlist5++] = cbox;
+      }
+    }
+  }
+
+  tbox->nlist5_near = nlist5; 
+
+  // Go over list-1 of the parent box. If the box is adjacent, then it
+  // belongs to coarser level list-1 and the pointer is
+  // stored. Otherwise, the box belongs to list-4 and is processed
+  // using source-to-local oeprator.
+  for (int i = 0; i < nplist1; i++) {
+    fmm_box_t *sbox = plist1[i]; 
+    if (is_adjacent(sbox, tbox)) {
+      list1[nlist1++] = sbox; 
+    } else {
+      //source_to_local(tbox, sbox); 
+    }
+  }
+
+  // Check if it is possible to prune the subtree rooted at
+  // 'tbox'. First, we check if the box is adajcent to any source box
+  // by checking if tbox->nlist5 is zero. If not, we check if any of
+  // the list-5 box has more than 'part_thres' points. When both
+  // conditions are satifised, the partition performed at 'tbox' will
+  // be kept. Otherwise, the lower branch will be dropped. 
+  if (tbox->npts <= part_thres || tbox->nlist5_near == 0) {
+    CILK_FOR (int i = 0; i < 8; i++) {
+      //delete_box(tbox->child[i]); 
+      tbox->child[i] = NULL;
+    }
+    tbox->nchild = 0;
+  } else {
+    bool remove = true;
+    for (int i = 0; i < nlist5; i++) {
+      fmm_box_t *sbox = list5[i]; 
+      remove &= (sbox->npts <= part_thres); 
+    }
+
+    if (remove) {
+      CILK_FOR (int i = 0; i < 8; i++) {
+        //delete_box(tbox->child[i]); 
+        tbox->child[i] = NULL;
+      } 
+      tbox->nchild = 0;
+    }
+  }
+
+  if (tbox->nchild) {
+    // Complete exponential-to-local translation using the
+    // merge-and-shift technique. 
+    for (int i = 0; i < 8; i++) {
+      fmm_box_t *child = tbox->child[i];
+      if (child != NULL) {
+        //child->expansion = CALLOC(fmm_param->pgsz, sizeof(double complex));
+        //assert(child->expansion != NULL);
+      }
+    }
+
+    //exponential_to_local(tbox); 
+    //local_to_local(tbox); 
+
+    // Go over list-5 and if any box in that list is a leaf box,
+    // relocate it to list-1 and then spawn work on the children of 'tbox'.
+    for (int i = 0; i < nlist5; i++) {
+      fmm_box_t *sbox = list5[i]; 
+      if (sbox->nchild == 0) 
+        list1[nlist1++] = sbox; 
+    }
+    tbox->nlist1_near = nlist1; 
+
+    CILK_FOR (int i = 0; i < 8; i++) {
+      fmm_box_t *child = tbox->child[i]; 
+      if (child != NULL) 
+        disaggregate_near(child); 
+    }
+  } else {
+    // Evaluate the local expansion to get far-field influence. 
+    //local_to_target(tbox); 
+    
+    // If tbox has nonempty list-5, go over each entry in the list-5
+    // and process them either as a list-1 entry or a list-3 entry. 
+    if (nlist5) {
+      for (int i = 0; i < nlist5; i++) {
+        fmm_box_t *sbox = list5[i]; 
+        process_list13_near(tbox, sbox); 	
+      }
+    }
+
+    // Process the coarser or same level list-1 boxes
+    for (int i = 0; i < nlist1; i++) {
+      fmm_box_t *sbox = list1[i]; 
+      direct_evaluation(tbox, sbox);
+    }
+  }	     
+}
+
+void process_list13_far(fmm_box_t *tbox, fmm_box_t *sbox) {
+  if (is_adjacent(tbox, sbox)) {
+    if (sbox->nchild) {
+      for (int i = 0; i < 8; i++) {
+        fmm_box_t *child = sbox->child[i]; 
+        if (child != NULL) 
+          process_list13_far(tbox, child);
+      }
+    } else {
+      //direct_evaluation(tbox, sbox); 
+    }
+  } else {
+    // This source box is a list-3 box by definition. If 'sbox'
+    // contains more than 'pgsz' points, multipole-to-target operator
+    // is the more efficient way to process it. Otherwise, process
+    // this source box by direct evaluation. 
+    if (sbox->npts > fmm_param->pgsz) {
+      multipole_to_target(tbox, sbox);
+    } else {
+      //direct_evaluation(tbox, sbox);
+    }
+  }
+}
+
+void process_list13_near(fmm_box_t *tbox, fmm_box_t *sbox) {
+  if (is_adjacent(tbox, sbox)) {
+    if (sbox->nchild) {
+      for (int i = 0; i < 8; i++) {
+        fmm_box_t *child = sbox->child[i]; 
+        if (child != NULL) 
+          process_list13_near(tbox, child);
+      }
+    } else {
+      direct_evaluation(tbox, sbox); 
+    }
+  } else {
+    // This source box is a list-3 box by definition. If 'sbox'
+    // contains more than 'pgsz' points, multipole-to-target operator
+    // is the more efficient way to process it. Otherwise, process
+    // this source box by direct evaluation. 
+    if (sbox->npts > fmm_param->pgsz) {
+      //multipole_to_target(tbox, sbox);
+    } else {
+      direct_evaluation(tbox, sbox);
+    }
+  }
+}
+#endif
 
 void make_ulist(int type, fmm_box_t **list, int nlist, 
                 int *xoff, int *yoff, double complex *mexpo, int level) {
@@ -2363,9 +2738,14 @@ void local_to_target(fmm_box_t *tbox) {
   const double precision = 1e-14;
 
   for (int i = 0; i < ntargets; i++) {
-    int ptr = addr + i; 
-    double *pot = &potential_sorted[ptr]; 
+    int ptr = addr + i;
+#ifdef NORMAL
+    double *pot = &potential_sorted[ptr];
     double *field = &field_sorted[3 * ptr]; 
+#else
+    double *pot = &potential_sorted_far[ptr];
+    double *field = &field_sorted_far[3 * ptr]; 
+#endif
     double field0, field1, field2, rloc, cp, rpotz = 0.0;
     double complex cpz, zs1 = 0.0, zs2 = 0.0, zs3 = 0.0;
     double rx = targets_sorted[3 * ptr] - center[0];
@@ -2557,9 +2937,14 @@ void multipole_to_target(fmm_box_t *tbox, fmm_box_t *sbox) {
   const double precis = 1e-14; 
   
   for (int i = 0; i < ntargets; i++) {
-    int ptr = addr + i; 
-    double *pot = &potential_sorted[ptr]; 
+    int ptr = addr + i;
+#ifdef NORMAL
+    double *pot = &potential_sorted[ptr];
     double *field = &field_sorted[3 * ptr]; 
+#else
+    double *pot = &potential_sorted_far[ptr];
+    double *field = &field_sorted_far[3 * ptr]; 
+#endif
     double rpotz = 0.0, field1 = 0.0, field2 = 0.0, field3 = 0.0;
     double complex zs1 = 0.0, zs2 = 0.0, zs3 = 0.0;
     double rx = targets_sorted[3 * ptr]     - center[0];
@@ -2672,10 +3057,17 @@ void direct_evaluation(const fmm_box_t *tbox, const fmm_box_t *sbox) {
       }
     }
 
+#ifdef NORMAL
     potential_sorted[i]   += pot;
     field_sorted[i * 3]     += fx;
     field_sorted[i * 3 + 1] += fy;
     field_sorted[i * 3 + 2] += fz;
+#else
+    potential_sorted_near[i]   += pot;
+    field_sorted_near[i * 3]     += fx;
+    field_sorted_near[i * 3 + 1] += fy;
+    field_sorted_near[i * 3 + 2] += fz;
+#endif
   }
 }
 
@@ -4484,8 +4876,13 @@ void local_to_target(fmm_box_t *tbox) {
 
   for (int i = 0; i < ntargets; i++) {
     int ptr = addr + i;
-    double *pot = &potential_sorted[ptr]; 
+#ifdef NORMAL
+    double *pot = &potential_sorted[ptr];
     double *field = &field_sorted[3 * ptr]; 
+#else
+    double *pot = &potential_sorted_far[ptr];
+    double *field = &field_sorted_far[3 * ptr]; 
+#endif
     double complex cpz, fieldtemp[3] = {0};
 
     double rx = targets_sorted[3 * ptr] - center[0]; 
@@ -4720,9 +5117,14 @@ void multipole_to_target(fmm_box_t *tbox, fmm_box_t *sbox) {
 
   for (int i = 0; i < ntargets; i++) {
     double complex fieldtemp[3] = {0}; 
-    int ptr = addr + i; 
+    int ptr = addr + i;
+#ifdef NORMAL
     double *pot = &potential_sorted[ptr]; 
     double *field = &field_sorted[3 * ptr]; 
+#else
+    double *pot = &potential_sorted_far[ptr]; 
+    double *field = &field_sorted_far[3 * ptr]; 
+#endif
 
     double rx = targets_sorted[3 * ptr] - center[0];
     double ry = targets_sorted[3 * ptr + 1] - center[1];
@@ -4894,10 +5296,17 @@ void direct_evaluation(const fmm_box_t *tbox, const fmm_box_t *sbox) {
       }
     }
 
+#ifdef NORMAL
     potential_sorted[i]  += pot;
     field_sorted[i3]     += fx;
     field_sorted[i3 + 1] += fy;
     field_sorted[i3 + 2] += fz;
+#else
+    potential_sorted_near[i]  += pot;
+    field_sorted_near[i3]     += fx;
+    field_sorted_near[i3 + 1] += fy;
+    field_sorted_near[i3 + 2] += fz;
+#endif
   }
 }
 

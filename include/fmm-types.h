@@ -4,6 +4,10 @@
 
 #include <complex.h>
 #define MAXLEV 128
+//#define NORMAL
+//#define SERIAL_CILK
+//#define PAR_CILK
+#define MULTICILK
 
 typedef float real4;
 typedef double real8;
@@ -24,10 +28,21 @@ struct fmm_box_t {
   int idz; ///< z direction index
   int npts; ///< number of points contained 
   int addr; ///< offset to retrieve the first contained point
+#ifdef NORMAL
   fmm_box_t *list1[27]; ///< Coarser or same level List 1 boxes
   fmm_box_t *list5[27]; ///< colleague list
   int nlist1; ///< number of boxes contained in List 1
   int nlist5; ///< number of boxes contained in List 5
+#else
+  fmm_box_t *list1_far[27]; ///< Coarser or same level List 1 boxes
+  fmm_box_t *list5_far[27]; ///< colleague list
+  fmm_box_t *list1_near[27]; ///< Coarser or same level List 1 boxes
+  fmm_box_t *list5_near[27]; ///< colleague list
+  int nlist1_far; ///< number of boxes contained in List 1
+  int nlist5_far; ///< number of boxes contained in List 5
+  int nlist1_near; ///< number of boxes contained in List 1
+  int nlist5_near; ///< number of boxes contained in List 5
+#endif
   double complex *expansion; ///< multipole/exponential/local expansions
 }; 
 

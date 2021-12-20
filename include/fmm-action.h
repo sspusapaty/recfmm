@@ -32,6 +32,7 @@
 #ifndef FMM_ACTION_H
 #define FMM_ACTION_H
 
+
 #include "fmm-types.h"
 
 /// ----------------------------------------------------------------------------
@@ -45,6 +46,8 @@ void aggregate(fmm_box_t *sbox);
 /// \param[in] tbox Pointer to a target box where disaggregate operation occurs
 /// ----------------------------------------------------------------------------
 void disaggregate(fmm_box_t *tbox); 
+void disaggregate_far(fmm_box_t *tbox); 
+void disaggregate_near(fmm_box_t *tbox); 
 
 /// ----------------------------------------------------------------------------
 /// @brief Source to multipole translation
@@ -136,6 +139,8 @@ void multipole_to_target(fmm_box_t *tbox, fmm_box_t *sbox);
 /// \param[in] sbox Source box which will be processed either as List 1 or List 3
 /// ----------------------------------------------------------------------------
 void process_list13(fmm_box_t *tbox, fmm_box_t *sbox); 
+void process_list13_far(fmm_box_t *tbox, fmm_box_t *sbox); 
+void process_list13_near(fmm_box_t *tbox, fmm_box_t *sbox); 
 
 /// ----------------------------------------------------------------------------
 /// @brief Pairwise direct interaction between two boxes

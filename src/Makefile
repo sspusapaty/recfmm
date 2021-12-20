@@ -13,10 +13,10 @@ COBJECTS = $(CSOURCES:.c=.o)
 FOBJECTS = $(FSOURCES:.f=.o)
 
 ifeq ($(CC), icc)
-	CCFLAGS = -pedantic $(FLAGS)
+	CCFLAGS = -fopencilk $(FLAGS)
 	FC      = ifort
 else 
-	CCFLAGS = -fcilkplus $(FLAGS)
+	CCFLAGS = -fopencilk $(FLAGS)
 	FC      = gfortran
 endif 
 

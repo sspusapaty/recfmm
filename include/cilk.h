@@ -32,6 +32,8 @@
 #ifndef CILK_H
 #define CILK_H
 
+#define USING_CILK
+
 #ifdef USING_CILK
 #include <cilk/cilk.h>
 #include <cilk/cilk_api.h>

@@ -8,11 +8,11 @@ FCFLAGS = -O3
 EXEC = fmm
 
 ifeq ($(CC), icc)
-	CCFLAGS = -Wall -pedantic $(FLAGS)
+	CCFLAGS = -fopencilk $(FLAGS)
 	FC = ifort 
 	LINKER = $(FC) -nofor_main
 else 
-	CCFLAGS = -fcilkplus $(FLAGS) 
+	CCFLAGS = -fopencilk $(FLAGS) 
 	FC = gfortran
 	LINKER = $(CC)
 endif 

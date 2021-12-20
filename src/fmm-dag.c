@@ -351,11 +351,19 @@ build_merged_list2(const fmm_box_t *tbox,
 
   int tidx = tbox->idx; 
   int tidy = tbox->idy; 
-  int tidz = tbox->idz; 
-  int nlist5 = tbox->nlist5; 
+  int tidz = tbox->idz;
+#ifdef NORMAL
+  int nlist5 = tbox->nlist5;
+#else
+  int nlist5 = tbox->nlist5_far;
+#endif
 
   for (int i = 0; i < nlist5; i++) {
-    fmm_box_t *sbox = tbox->list5[i]; 
+#ifdef NORMAL
+    fmm_box_t *sbox = tbox->list5[i];
+#else
+    fmm_box_t *sbox = tbox->list5_far[i];
+#endif
     int sidx = sbox->idx;
     int sidy = sbox->idy;
     int sidz = sbox->idz; 
