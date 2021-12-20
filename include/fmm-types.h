@@ -7,7 +7,7 @@
 //#define NORMAL
 //#define SERIAL_CILK
 //#define PAR_CILK
-#define MULTICILK
+//#define MULTICILK
 
 typedef float real4;
 typedef double real8;

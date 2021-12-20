@@ -120,16 +120,56 @@ subdir('example')
 
 def_lap = ['-DLAPLACE']
 def_yuk = ['-DYUKAWA']
+def_multicilk = ['-DMULTICILK']
+def_normal = ['-DNORMAL']
+def_serial_cilk = ['-DSERIAL_CILK']
+def_par_cilk = ['-DPAR_CILK']
 
 # recFMM libraries: Laplace & Yukawa
 lib_lap = library('adap_laplace', [src_recfmm_laplace],
-                  c_args : def_lap,
+                  c_args : def_lap + def_normal,
                   dependencies : recfmm_dep,
                   include_directories : [recfmm_include_dir],
                   install : true, install_dir : 'lib',
                   soversion : vso)
 lib_yuk = library('adap_yukawa', [src_recfmm_yukawa],
-                  c_args : def_yuk,
+                  c_args : def_yuk + def_normal,
+                  dependencies : recfmm_dep,
+                  include_directories : [recfmm_include_dir],
+                  install : true, install_dir : 'lib',
+                  soversion : vso)
+lib_lap_multicilk = library('adap_laplace_m', [src_recfmm_laplace],
+                  c_args : def_lap + def_multicilk,
+                  dependencies : recfmm_dep,
+                  include_directories : [recfmm_include_dir],
+                  install : true, install_dir : 'lib',
+                  soversion : vso)
+lib_yuk_multicilk = library('adap_yukawa_m', [src_recfmm_yukawa],
+                  c_args : def_yuk + def_multicilk,
+                  dependencies : recfmm_dep,
+                  include_directories : [recfmm_include_dir],
+                  install : true, install_dir : 'lib',
+                  soversion : vso)
+lib_lap_serialcilk = library('adap_laplace_s', [src_recfmm_laplace],
+                  c_args : def_lap + def_serial_cilk,
+                  dependencies : recfmm_dep,
+                  include_directories : [recfmm_include_dir],
+                  install : true, install_dir : 'lib',
+                  soversion : vso)
+lib_yuk_serialcilk = library('adap_yukawa_s', [src_recfmm_yukawa],
+                  c_args : def_yuk + def_serial_cilk,
+                  dependencies : recfmm_dep,
+                  include_directories : [recfmm_include_dir],
+                  install : true, install_dir : 'lib',
+                  soversion : vso)
+lib_lap_parcilk = library('adap_laplace_p', [src_recfmm_laplace],
+                  c_args : def_lap + def_par_cilk,
+                  dependencies : recfmm_dep,
+                  include_directories : [recfmm_include_dir],
+                  install : true, install_dir : 'lib',
+                  soversion : vso)
+lib_yuk_parcilk = library('adap_yukawa_p', [src_recfmm_yukawa],
+                  c_args : def_yuk + def_par_cilk,
                   dependencies : recfmm_dep,
                   include_directories : [recfmm_include_dir],
                   install : true, install_dir : 'lib',
@@ -137,13 +177,49 @@ lib_yuk = library('adap_yukawa', [src_recfmm_yukawa],
 
 # test executables
 exe_test_lap = executable('recfmm-test-laplace', [src_recfmm_test],
-                          c_args : def_lap, link_with : lib_lap,
+                          c_args : def_lap + def_normal, link_with : lib_lap,
                           dependencies : recfmm_dep,
                           include_directories : [recfmm_include_dir],
                           install_rpath : get_option('prefix') / 'lib',
                           install : true, install_dir : 'test')
 exe_test_yuk = executable('recfmm-test-yukawa', [src_recfmm_test],
-                          c_args : def_yuk, link_with : lib_yuk,
+                          c_args : def_yuk + def_normal, link_with : lib_yuk,
+                          dependencies : recfmm_dep,
+                          include_directories : [recfmm_include_dir],
+                          install_rpath : get_option('prefix') / 'lib',
+                          install : true, install_dir : 'test')
+exe_test_lap_multicilk = executable('recfmm-test-laplace-multicilk', [src_recfmm_test],
+                          c_args : def_lap + def_multicilk, link_with : lib_lap_multicilk,
+                          dependencies : recfmm_dep,
+                          include_directories : [recfmm_include_dir],
+                          install_rpath : get_option('prefix') / 'lib',
+                          install : true, install_dir : 'test')
+exe_test_yuk_multicilk = executable('recfmm-test-yukawa-multicilk', [src_recfmm_test],
+                          c_args : def_yuk + def_multicilk, link_with : lib_yuk_multicilk,
+                          dependencies : recfmm_dep,
+                          include_directories : [recfmm_include_dir],
+                          install_rpath : get_option('prefix') / 'lib',
+                          install : true, install_dir : 'test')
+exe_test_lap_serialcilk = executable('recfmm-test-laplace-serialcilk', [src_recfmm_test],
+                          c_args : def_lap + def_serial_cilk, link_with : lib_lap_serialcilk,
+                          dependencies : recfmm_dep,
+                          include_directories : [recfmm_include_dir],
+                          install_rpath : get_option('prefix') / 'lib',
+                          install : true, install_dir : 'test')
+exe_test_yuk_serialcilk = executable('recfmm-test-yukawa-serialcilk', [src_recfmm_test],
+                          c_args : def_yuk + def_serial_cilk, link_with : lib_yuk_serialcilk,
+                          dependencies : recfmm_dep,
+                          include_directories : [recfmm_include_dir],
+                          install_rpath : get_option('prefix') / 'lib',
+                          install : true, install_dir : 'test')
+exe_test_lap_parcilk = executable('recfmm-test-laplace-parcilk', [src_recfmm_test],
+                          c_args : def_lap + def_par_cilk, link_with : lib_lap_parcilk,
+                          dependencies : recfmm_dep,
+                          include_directories : [recfmm_include_dir],
+                          install_rpath : get_option('prefix') / 'lib',
+                          install : true, install_dir : 'test')
+exe_test_yuk_parcilk = executable('recfmm-test-yukawa-parcilk', [src_recfmm_test],
+                          c_args : def_yuk + def_par_cilk, link_with : lib_yuk_parcilk,
                           dependencies : recfmm_dep,
                           include_directories : [recfmm_include_dir],
                           install_rpath : get_option('prefix') / 'lib',
