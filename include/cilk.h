@@ -35,6 +35,7 @@
 #ifdef USING_CILK
 #include <cilk/cilk.h>
 #include <cilk/cilk_api.h>
+#include <cilk/cilk_c11_threads.h>
 #include <cilk/reducer_min.h>
 #include <cilk/reducer_max.h>
 

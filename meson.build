@@ -34,7 +34,8 @@ if use_opencilk or use_cilkplus
   have_cilk_headers = cc.has_header('cilk/cilk.h') and \
                       cc.has_header('cilk/cilk_api.h') and \
                       cc.has_header('cilk/reducer_min.h') and \
-                      cc.has_header('cilk/reducer_max.h')
+                      cc.has_header('cilk/reducer_max.h') and \
+                      cc.has_header('cilk/cilk_c11_threads.h')
   if not have_cilk_headers
     warning('Required Cilk headers not found. Switching to sequential build.')
   endif

@@ -23,7 +23,6 @@
 #include <math.h>
 
 #include "cilk.h"
-#include "../opencilk-project/cheetah/runtime/cilk_thread_tests/cilk_c11_threads.c" 
 #include "fmm-param.h"
 #include "fmm-action.h"
 #include "fmm-dag.h"
@@ -148,11 +147,8 @@ void fmm_compute(const fmm_config_t *fmm_config, fmm_dag_t *_fmm_dag,
   part_thres = s;
 
 #ifdef MULTICILK
-  printf("running Multicilk...\n");
   cilk_config_t farcilk_cfg = cilk_thrd_config_from_env("FARCILK");
   cilk_config_t nearcilk_cfg = cilk_thrd_config_from_env("NEARCILK");
-  printf("number of workers in far = %d\n", farcilk_cfg.n_workers);
-  printf("number of workers in near = %d\n", nearcilk_cfg.n_workers);
   pthread_t far_cilk, near_cilk;
   cilk_thrd_create(farcilk_cfg, &far_cilk, far_dispatch, (void*)fmm_dag);
   cilk_thrd_create(nearcilk_cfg, &near_cilk, near_dispatch, (void*)fmm_dag);
